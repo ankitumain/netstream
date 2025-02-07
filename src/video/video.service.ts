@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { join } from 'path';
 import * as fs from 'fs';
 import { existsSync, createReadStream } from 'fs';
@@ -7,6 +7,12 @@ import { NotFoundException } from '@nestjs/common';
 import * as AWS from 'aws-sdk';
 import { v4 as uuidv4 } from 'uuid';
 
+interface S3UploadResponse {
+  Location: string;
+  ETag: string;
+  Bucket: string;
+  Key: string;
+}
 @Injectable()
 export class VideoService {
   private s3: AWS.S3;
@@ -35,7 +41,7 @@ export class VideoService {
     };
 
     try {
-      const data = await this.s3.upload(params).promise();
+      const data: S3UploadResponse = await this.s3.upload(params).promise();
       return {
         message: 'File uploaded successfully',
         url: data.Location,
