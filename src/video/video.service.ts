@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { join } from 'path';
 import * as fs from 'fs';
 import { existsSync, createReadStream } from 'fs';
@@ -7,6 +7,8 @@ import { NotFoundException } from '@nestjs/common';
 
 @Injectable()
 export class VideoService {
+  private readonly logger: Logger = new Logger(VideoService.name);
+
   async handleVideoUpload(file: Express.Multer.File) {
     // Log file details
     console.log('File received:', file);
@@ -19,10 +21,17 @@ export class VideoService {
       fileName: file.originalname,
     };
   }
+
+  handleDeleteVideo(fileName: string) {
+    //logic to delete video
+
+    return {
+      message: `Video ${fileName} deleted successfully!`,
+    };
+  }
+
   async handleVideoDownload(fileName: string, res: Response) {
     const filePath = join(__dirname, '..', '..', 'uploads', fileName);
-
-    console.log('filename:', filePath);
 
     if (!existsSync(filePath)) {
       throw new NotFoundException('File not found');

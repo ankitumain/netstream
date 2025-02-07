@@ -7,6 +7,7 @@ import {
   UseInterceptors,
   Res,
   Req,
+  Delete,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { Response } from 'express';
@@ -22,6 +23,11 @@ export class VideoController {
   @UseInterceptors(FileInterceptor('file', multerConfig))
   async uploadVideo(@UploadedFile() file: Express.Multer.File) {
     return this.videoService.handleVideoUpload(file);
+  }
+
+  @Delete('delete/:fileName')
+  async deleteVideo(@Param('fileName') fileName: string) {
+    return this.videoService.handleDeleteVideo(fileName);
   }
 
   @Get('download/:fileName')
