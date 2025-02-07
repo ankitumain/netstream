@@ -4,22 +4,46 @@ import * as fs from 'fs';
 import { existsSync, createReadStream } from 'fs';
 import { Request, Response } from 'express';
 import { NotFoundException } from '@nestjs/common';
+import * as AWS from 'aws-sdk';
+import { v4 as uuidv4 } from 'uuid';
 
 @Injectable()
 export class VideoService {
-  private readonly logger: Logger = new Logger(VideoService.name);
+  private s3: AWS.S3;
 
-  async handleVideoUpload(file: Express.Multer.File) {
-    // Log file details
-    console.log('File received:', file);
+  constructor() {
+    this.s3 = new AWS.S3({
+      accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+      region: process.env.AWS_REGION,
+    });
+  }
 
-    // Here you can add logic to save the file to a database or cloud storage
-    // For example, you could use AWS S3, Google Cloud Storage, etc.
+  async uploadFileToS3(file: Express.Multer.File): Promise<any> {
+    const bucketName = process.env.AWS_S3_BUCKET_NAME;
+    if (!bucketName) {
+      throw new Error('S3 bucket name is not defined in environment variables');
+    }
 
-    return {
-      message: 'Video uploaded successfully!',
-      fileName: file.originalname,
+    const fileKey = `${uuidv4()}-${file.originalname}`;
+
+    const params = {
+      Bucket: bucketName,
+      Key: fileKey,
+      Body: file.buffer,
+      ContentType: file.mimetype,
     };
+
+    try {
+      const data = await this.s3.upload(params).promise();
+      return {
+        message: 'File uploaded successfully',
+        url: data.Location,
+      };
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      throw new Error('Error uploading file');
+    }
   }
 
   handleDeleteVideo(fileName: string) {
