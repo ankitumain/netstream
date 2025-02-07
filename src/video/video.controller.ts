@@ -6,7 +6,9 @@ import {
   Param,
   UseInterceptors,
   Res,
+  Req,
 } from '@nestjs/common';
+import { Request } from 'express';
 import { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { multerConfig } from './multer-config';
@@ -28,5 +30,14 @@ export class VideoController {
     @Res() res: Response,
   ) {
     return this.videoService.handleVideoDownload(fileName, res);
+  }
+
+  @Get('stream/:fileName')
+  streamVideo(
+    @Param('fileName') fileName: string,
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
+    this.videoService.streamVideo(fileName, req, res);
   }
 }
