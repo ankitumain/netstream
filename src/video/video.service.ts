@@ -1,4 +1,8 @@
 import { Injectable } from '@nestjs/common';
+import { join } from 'path';
+import { existsSync, createReadStream } from 'fs';
+import { Response } from 'express';
+import { NotFoundException } from '@nestjs/common';
 
 @Injectable()
 export class VideoService {
@@ -12,6 +16,26 @@ export class VideoService {
     return {
       message: 'Video uploaded successfully!',
       fileName: file.originalname,
+    };
+  }
+  async handleVideoDownload(fileName: string, res: Response) {
+    const filePath = join(__dirname, '..', '..', 'uploads', fileName);
+
+    if (!existsSync(filePath)) {
+      throw new NotFoundException('File not found');
+    }
+
+    const fileStream = createReadStream(filePath);
+    res.set({
+      'Content-Type': 'video/mp4', // Adjust the content type based on your file type
+      'Content-Disposition': `attachment; filename="${fileName}"`,
+    });
+
+    fileStream.pipe(res);
+
+    return {
+      message: 'Video downloaded successfully!',
+      fileName,
     };
   }
 }
