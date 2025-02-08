@@ -1,18 +1,46 @@
 import {
   Controller,
   Post,
+  Res,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { VideoProcessingService } from './video-processing.service';
 import { diskStorage } from 'multer';
+import { Response } from 'express';
 
 @Controller('video')
 export class VideoProcessingController {
   constructor(
     private readonly videoProcessingService: VideoProcessingService,
   ) {}
+
+  @Post('process')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: './uploads/temp',
+        filename: (req, file, cb) => {
+          const uniqueName = `${Date.now()}-${file.originalname}`;
+          cb(null, uniqueName);
+        },
+      }),
+    }),
+  )
+  async processVideo(
+    @UploadedFile() file: Express.Multer.File,
+    @Res() res: Response,
+  ) {
+    try {
+      const hlsFolder = await this.videoProcessingService.createHlsStream(
+        file.path,
+      );
+      res.status(200).json({ message: 'HLS streams created', path: hlsFolder });
+    } catch (error: unknown) {
+      res.status(500).json({ message: (error as { message: string }).message });
+    }
+  }
 
   @Post('upload')
   @UseInterceptors(

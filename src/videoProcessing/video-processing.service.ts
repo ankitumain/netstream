@@ -7,6 +7,68 @@ import * as fs from 'fs';
 export class VideoProcessingService {
   private readonly outputFolder = 'uploads/videos';
 
+  async createHlsStream(inputFile: string): Promise<string> {
+    const fileName = path.basename(inputFile, path.extname(inputFile));
+    const hlsFolder = path.join(this.outputFolder, `${fileName}_hls`);
+
+    if (!fs.existsSync(hlsFolder)) {
+      fs.mkdirSync(hlsFolder, { recursive: true });
+    }
+
+    const qualities = [
+      { name: '360p', width: 640, height: 360, bitrate: '800k' },
+      { name: '480p', width: 842, height: 480, bitrate: '1400k' },
+      { name: '720p', width: 1280, height: 720, bitrate: '2800k' },
+    ];
+
+    return new Promise((resolve, reject) => {
+      const ffmpegCommand = ffmpeg(inputFile);
+
+      qualities.forEach((quality) => {
+        ffmpegCommand
+          .output(`${hlsFolder}/index_${quality.name}.m3u8`)
+          .videoCodec('libx264')
+          .audioCodec('aac')
+          .size(`${quality.width}x${quality.height}`)
+          .videoBitrate(quality.bitrate)
+          .audioBitrate('128k')
+          .outputOptions([
+            '-hls_time 10',
+            '-hls_list_size 0',
+            '-f hls',
+            `-hls_segment_filename ${hlsFolder}/segment_${quality.name}_%03d.ts`,
+          ]);
+      });
+
+      ffmpegCommand
+        .on('end', () => {
+          console.log(`✅ HLS streams created in: ${hlsFolder}`);
+          this.createMasterPlaylist(hlsFolder, qualities);
+          resolve(hlsFolder);
+        })
+        .on('error', (err) => {
+          console.error(`❌ Error creating HLS streams: ${err.message}`);
+          reject(new InternalServerErrorException('HLS conversion failed'));
+        })
+        .run();
+    });
+  }
+
+  private createMasterPlaylist(hlsFolder: string, qualities: any[]) {
+    const masterPlaylistPath = path.join(hlsFolder, 'master.m3u8');
+    const masterPlaylistContent = ['#EXTM3U'];
+
+    qualities.forEach((quality) => {
+      masterPlaylistContent.push(
+        `#EXT-X-STREAM-INF:BANDWIDTH=${parseInt(quality.bitrate) * 1000},RESOLUTION=${quality.width}x${quality.height}`,
+        `index_${quality.name}.m3u8`,
+      );
+    });
+
+    fs.writeFileSync(masterPlaylistPath, masterPlaylistContent.join('\n'));
+    console.log(`✅ Master playlist created: ${masterPlaylistPath}`);
+  }
+
   constructor() {
     if (!fs.existsSync(this.outputFolder)) {
       fs.mkdirSync(this.outputFolder, { recursive: true });
@@ -47,6 +109,8 @@ export class VideoProcessingService {
     }
 
     const hlsFolder = await this.createHLS(inputFile);
+
+    console.log('hlsFolder', hlsFolder);
 
     return { mp4: mp4Files, webm: webmFiles, hls: hlsFolder };
   }

@@ -80,6 +80,17 @@ export class VideoService {
       fileName,
     };
   }
+  getHlsFilePath(foldername: string, fileName: string): string {
+    return join(
+      __dirname,
+      '..',
+      '..',
+      'uploads',
+      'videos',
+      foldername,
+      fileName,
+    );
+  }
   streamVideo(fileName: string, req: Request, res: Response) {
     const videoPath = join(__dirname, '..', '..', 'uploads', fileName);
     if (!fs.existsSync(videoPath)) {
