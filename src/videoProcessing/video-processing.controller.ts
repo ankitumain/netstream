@@ -1,14 +1,17 @@
 import {
   Controller,
   Post,
+  Get,
   Res,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { VideoProcessingService } from './video-processing.service';
 import { diskStorage } from 'multer';
 import { Response } from 'express';
+import * as fs from 'fs';
+import * as path from 'path';
+import { VideoProcessingService } from './video-processing.service';
 
 @Controller('video')
 export class VideoProcessingController {
@@ -74,5 +77,38 @@ export class VideoProcessingController {
       processedFiles,
       thumbnail,
     };
+  }
+
+  // ✅ New API endpoint to list available HLS videos
+  @Get('list')
+  async listVideos(@Res() res: Response) {
+    try {
+      const videoDir =
+        '/Users/danial.rahimzadeh/repo/hackathon/netstream/uploads/videos';
+
+      // Read all folders ending in "_hls"
+      const videoFolders = fs
+        .readdirSync(videoDir)
+        .filter((folder) => folder.endsWith('_hls'));
+
+      // Get only those with a valid "master.m3u8"
+      const videos = videoFolders
+        .map((folder) => {
+          const masterFilePath = path.join(videoDir, folder, 'master.m3u8');
+          if (fs.existsSync(masterFilePath)) {
+            return {
+              name: folder,
+              path: `http://localhost:3000/videos/hls/${folder}/master.m3u8`, // Adjust based on serving
+            };
+          }
+          return null;
+        })
+        .filter(Boolean);
+
+      res.status(200).json(videos);
+    } catch (error) {
+      console.error('Error listing videos:', error);
+      res.status(500).json({ message: 'Failed to fetch videos' });
+    }
   }
 }
