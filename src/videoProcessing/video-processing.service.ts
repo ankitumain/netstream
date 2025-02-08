@@ -2,45 +2,54 @@ import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import * as ffmpeg from 'fluent-ffmpeg';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as AWS from 'aws-sdk';
 import { VideoGateway } from './video.gateway';
+
+const s3 = new AWS.S3();
+const bucketName = process.env.S3_BUCKET || 'video-bucket';
 
 @Injectable()
 export class VideoProcessingService {
-  private readonly outputFolder = 'uploads/videos';
+  private readonly tempFolder = '/tmp'; // Railway compatible
 
-  constructor(private readonly videoGateway: VideoGateway) {
-    if (!fs.existsSync(this.outputFolder)) {
-      fs.mkdirSync(this.outputFolder, { recursive: true });
-    }
-  }
+  constructor(private readonly videoGateway: VideoGateway) {}
 
-  async processVideo(inputFile: string, clientId: string): Promise<any> {
-    const fileName = path.basename(inputFile, path.extname(inputFile));
+  async processVideo(s3Key: string, clientId: string): Promise<any> {
+    const fileName = path.basename(s3Key);
+    const tempFilePath = path.join(this.tempFolder, fileName);
+
+    // Download file from S3
+    await this.downloadFromS3(s3Key, tempFilePath);
+
     const resolutions = ['1920x1080', '1280x720', '854x480', '640x360'];
     const mp4Files: string[] = [];
     const webmFiles: string[] = [];
-
     const totalFiles = resolutions.length * 2 + 1; // MP4 + WEBM + HLS
     let completedFiles = 0;
 
     for (const resolution of resolutions) {
       const mp4Output = path.join(
-        this.outputFolder,
+        this.tempFolder,
         `${fileName}_${resolution}.mp4`,
       );
       const webmOutput = path.join(
-        this.outputFolder,
+        this.tempFolder,
         `${fileName}_${resolution}.webm`,
       );
 
       await this.convertToFormat(
-        inputFile,
+        tempFilePath,
         mp4Output,
         'libx264',
         resolution,
         clientId,
       );
-      mp4Files.push(mp4Output);
+      mp4Files.push(
+        await this.uploadToS3(
+          mp4Output,
+          `processed/${fileName}_${resolution}.mp4`,
+        ),
+      );
       completedFiles++;
       this.videoGateway.sendProgress(clientId, {
         type: 'progress',
@@ -48,15 +57,19 @@ export class VideoProcessingService {
         totalFiles,
       });
 
-      const sourceWebM = webmFiles.length > 0 ? webmFiles[0] : inputFile;
       await this.convertToFormat(
-        sourceWebM,
+        tempFilePath,
         webmOutput,
         'libvpx-vp9',
         resolution,
         clientId,
       );
-      webmFiles.push(webmOutput);
+      webmFiles.push(
+        await this.uploadToS3(
+          webmOutput,
+          `processed/${fileName}_${resolution}.webm`,
+        ),
+      );
       completedFiles++;
       this.videoGateway.sendProgress(clientId, {
         type: 'progress',
@@ -65,13 +78,16 @@ export class VideoProcessingService {
       });
     }
 
-    const hlsFolder = await this.createHLS(inputFile, clientId);
+    const hlsFolder = await this.createHLS(tempFilePath, clientId);
     completedFiles++;
     this.videoGateway.sendProgress(clientId, {
       type: 'progress',
       completedFiles,
       totalFiles,
     });
+
+    // Cleanup temp file
+    fs.unlinkSync(tempFilePath);
 
     return { mp4: mp4Files, webm: webmFiles, hls: hlsFolder };
   }
@@ -114,8 +130,7 @@ export class VideoProcessingService {
     inputFile: string,
     clientId: string,
   ): Promise<string> {
-    const fileName = path.basename(inputFile, path.extname(inputFile));
-    const hlsFolder = path.join(this.outputFolder, `${fileName}_hls`);
+    const hlsFolder = path.join(this.tempFolder, 'hls');
 
     if (!fs.existsSync(hlsFolder)) {
       fs.mkdirSync(hlsFolder, { recursive: true });
@@ -145,34 +160,26 @@ export class VideoProcessingService {
     });
   }
 
-  /**
-   * Extract a thumbnail from the video
-   */
-  async extractThumbnail(inputFile: string): Promise<string> {
-    const fileName = path.basename(inputFile, path.extname(inputFile));
-    const thumbnailFile = path.join(
-      this.outputFolder,
-      `${fileName}_thumbnail.jpg`,
-    );
+  private async downloadFromS3(
+    s3Key: string,
+    outputFile: string,
+  ): Promise<void> {
+    const params = { Bucket: bucketName, Key: s3Key };
+    const s3Object = await s3.getObject(params).promise();
+    fs.writeFileSync(outputFile, s3Object.Body as Buffer);
+    console.log(`✅ File downloaded from S3: ${s3Key}`);
+  }
 
-    return new Promise((resolve, reject) => {
-      ffmpeg(inputFile)
-        .screenshots({
-          timestamps: ['10%'],
-          filename: `${fileName}_thumbnail.jpg`,
-          folder: this.outputFolder,
-          size: '320x240',
-        })
-        .on('end', () => {
-          console.log(`✅ Thumbnail extracted: ${thumbnailFile}`);
-          resolve(thumbnailFile);
-        })
-        .on('error', (err) => {
-          console.error(`❌ Error extracting thumbnail: ${err.message}`);
-          reject(
-            new InternalServerErrorException('Thumbnail extraction failed'),
-          );
-        });
-    });
+  private async uploadToS3(filePath: string, s3Key: string): Promise<string> {
+    const fileBuffer = fs.readFileSync(filePath);
+    const uploadParams = {
+      Bucket: bucketName,
+      Key: s3Key,
+      Body: fileBuffer,
+      ContentType: 'video/mp4',
+    };
+    const s3Response = await s3.upload(uploadParams).promise();
+    console.log(`✅ File uploaded to S3: ${s3Response.Location}`);
+    return s3Response.Location;
   }
 }
